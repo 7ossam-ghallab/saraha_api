@@ -1,8 +1,8 @@
 import express from 'express';
 import { config } from 'dotenv';
-// config()
+config()
 // config({path: './src/config/.dev.env'})
-config({path: `./src/config/.${process.env.NODE_ENV}.env`})
+// config({path: `./src/config/.${process.env.NODE_ENV}.env`})
 import db_connection from './DB/connection.js'
 import {controllerHandler} from './utils/controllers-handlers.utils.js'
 function bootstrap() {

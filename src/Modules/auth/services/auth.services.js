@@ -10,6 +10,10 @@
 import { User } from "../../../DB/models/user.model.js";
 import { compare, compareSync, hash, hashSync } from "bcrypt";
 import { Encryption } from "../../../utils/encryption.utils.js";
+import { sendEmailService } from "../../../Services/send-email.services.js";
+import { emitter } from "../../../Services/send-email.services.js";
+import path from "path";
+import jwt from "jsonwebtoken"
 
 /**
  * find
@@ -43,7 +47,53 @@ export const signUp = async (req, res) => {
     const hashPassword = hashSync(password, +process.env.SALT);
     // const hashPassword = await hash(password, 10);
 
-    const encryptedPhone = await Encryption({value : phone, key : process.env.ENCRYPTED_KEY})
+    const encryptedPhone = await Encryption({
+      value: phone,
+      key: process.env.ENCRYPTED_KEY,
+    });
+
+    // const isEmailSent = await sendEmailService({
+    //   to: email,
+    //   subject: "Email Verification",
+    //   html: "<h1> verify your email </h1>",
+    //   // attachments: [
+    //   //   {
+    //   //     filename: "mysql-tutorial-excerpt-5.7-en.pdf",
+    //   //     path: path.resolve("Assets/mysql-tutorial-excerpt-5.7-en.pdf"),
+    //   //   },
+    //   //   {
+    //   //     filename: "image.png",
+    //   //     path: path.resolve("Assets/image.png"),
+    //   //   },
+    //   // ],
+    // });
+    // console.log(isEmailSent)
+
+    const token = jwt.sign({email}, process.env.JWT_SECRET_KEY, {expiresIn : 60});
+
+    const confirmEmailLink = `${req.protocol}://${req.headers.host}/auth/verify-email/${token}`
+
+    emitter.emit("sendMail", {
+      to: email,
+      subject: "Email Verification",
+      html: 
+      `
+        <h1> verify your email </h1>
+        <p>Click on the following link to verify your email:</p>
+        <a href="${confirmEmailLink}">confirm Email</a>
+      `,
+      attachments: [
+        {
+          filename: "mysql-tutorial-excerpt-5.7-en.pdf",
+          path: path.resolve("Assets/mysql-tutorial-excerpt-5.7-en.pdf"),
+        },
+        {
+          filename: "image.png",
+          path: path.resolve("Assets/image.png"),
+        },
+      ],
+    })
+
     const newUser = new User({
       userName: username,
       password: hashPassword,
@@ -64,11 +114,11 @@ export const signUp = async (req, res) => {
 
 /*
 {
-  "username" : "hossamghallab",
+  "username" : "hossam_ghallab",
   "password" : "123456789",
   "confirmPassword" : "123456789",
-  "email" : "7os.gh@gmail.com",
-  "phone" : "010123456789"
+  "email" : "7ossam.ghallab@gmail.com",
+  "phone" : "+201111111111"
 }
 */
 
@@ -89,6 +139,37 @@ export const signUp = async (req, res) => {
  * signature (secret key)   =>> wayToCreateEncryption
  */
 
+
+
+
+/**
+ * updateOne
+ * updateMany
+ * 
+ * findOneAndUpdate
+ * findByIdAndUpdate
+ * save
+ */
+export const verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const decodedData = jwt.verify(token, process.env.JWT_SECRET_KEY);
+    const user = await User.findOneAndUpdate(
+      { email : decodedData.email },
+      { $set: { isEmailVerified: true } },
+      { new: true }
+    );
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    res.status(200).json({message : "Email verfied successfully", user})
+  }
+  catch (err) {
+    console.error(err.message);
+    res.status(500).json({ message: err.message });
+  }
+}
+
+
 export const signIn = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -99,10 +180,10 @@ export const signIn = async (req, res) => {
     const isPasswordMatch = compareSync(password, user.password);
     if (!isPasswordMatch)
       return res.status(401).json({ message: "invalid email or password" });
-
+    const accessToken = jwt.sign({_id:user._id, email:user.email}, process.env.JWT_SECRET_ACCESS)
     return res
       .status(201)
-      .json({ message: "user logged in successfully", user });
+      .json({ message: "user logged in successfully", token : accessToken ,  user });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err, message: err.message });
@@ -111,7 +192,7 @@ export const signIn = async (req, res) => {
 
 /*
 {
-  "email": "7ossam.gh@gmail.com",
+  "email": "7ossam.ghallab@gmail.com",
   "password" : "123456789"
 }
 */

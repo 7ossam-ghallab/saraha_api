@@ -41,7 +41,7 @@ export const sendEmailService = async ({
 export const emitter = new EventEmitter();
 
 emitter.on("sendMail", (...args) => {
-  console.log(args)
+  // console.log(args)
   const { to, subject, html, attachments } = args[0];
   sendEmailService({ to, subject, html, attachments });
   console.log("Email sent successfully!");

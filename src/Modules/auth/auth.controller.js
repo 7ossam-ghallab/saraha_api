@@ -5,10 +5,10 @@ const authRouter = Router()
 
 authRouter.post('/signup', authServices.signUp)
 authRouter.post('/signin', authServices.signIn)
+authRouter.post('/logout', authServices.logOut)
 authRouter.get('/verify-email/:token', authServices.verifyEmail)
-authRouter.get('/refresh-token', authServices.refreshToken)
-authRouter.get('/logout', authServices.logOut)
-authRouter.put('/forgot-password', authServices.forgotPassword)
+authRouter.post('/refresh-token', authServices.refreshToken)
+authRouter.patch('/forgot-password', authServices.forgotPassword)
 authRouter.put('/reset-password', authServices.resetPassword)
 
 export default authRouter;

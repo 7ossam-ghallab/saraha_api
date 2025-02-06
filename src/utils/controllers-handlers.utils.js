@@ -7,6 +7,9 @@ export const controllerHandler = (app) => {
   app.use("/auth", authRouter);
   app.use("/user", userRouter);
   app.use("/message", messagesRouter);
+  app.get('/', (req, res) => {
+    res.send('hello world!');
+  });
 
   app.all("*", (req, res) => {
     res.status(404).json({ message: "Page not found" });

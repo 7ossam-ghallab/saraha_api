@@ -5,7 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "SET NODE_ENV=prod&&node --watch ./index.js",
+    "start": "node.",
     "dev": "SET NODE_ENV=dev&&node --watch ./index.js"
   },
   "keywords": [],

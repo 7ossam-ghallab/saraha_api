@@ -8,14 +8,22 @@
  */
 
 import { User } from "../../../DB/models/user.model.js";
-import { compare, compareSync, hash, hashSync } from "bcrypt";
+import { compareSync, hashSync } from "bcrypt";
 import { Encryption } from "../../../utils/encryption.utils.js";
-import { sendEmailService } from "../../../Services/send-email.services.js";
 import { emitter } from "../../../Services/send-email.services.js";
 import path from "path";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import BlackListTokens from "../../../DB/models/black-list-tokens.model.js";
+import { sanitizeUser } from "../../../utils/sanitizers.utils.js";
+import { getErrorResponse } from "../../../utils/error-handling.utils.js";
+
+/**
+ * Builds the base URL used in e-mail links.
+ * Uses APP_URL env when available (prevents Host-header injection),
+ * falls back to the request's protocol + host for local development.
+ */
+const getAppURL = (req) => process.env.APP_URL || `${req.protocol}://${req.headers.host}`;
 
 /**
  * find
@@ -39,43 +47,18 @@ export const signUp = async (req, res) => {
     if (isEmailExist)
       return res.status(409).json({ message: "Email already exists" });
 
-    // const user = await User.create({
-    //   userName: username,
-    //   password: password,
-    //   phone,
-    //   email,
-    // });
-
     const hashPassword = hashSync(password, +process.env.SALT);
-    // const hashPassword = await hash(password, 10);
 
     const encryptedPhone = await Encryption({
       value: phone,
       key: process.env.ENCRYPTED_KEY,
     });
 
-    // const isEmailSent = await sendEmailService({
-    //   to: email,
-    //   subject: "Email Verification",
-    //   html: "<h1> verify your email </h1>",
-    //   // attachments: [
-    //   //   {
-    //   //     filename: "mysql-tutorial-excerpt-5.7-en.pdf",
-    //   //     path: path.resolve("Assets/mysql-tutorial-excerpt-5.7-en.pdf"),
-    //   //   },
-    //   //   {
-    //   //     filename: "image.png",
-    //   //     path: path.resolve("Assets/image.png"),
-    //   //   },
-    //   // ],
-    // });
-    // console.log(isEmailSent)
-
     const token = jwt.sign({ email }, process.env.JWT_SECRET_KEY, {
-      expiresIn: 60,
+      expiresIn: "15m",
     });
 
-    const confirmEmailLink = `${req.protocol}://${req.headers.host}/auth/verify-email/${token}`;
+    const confirmEmailLink = `${getAppURL(req)}/auth/verify-email/${token}`;
 
     emitter.emit("sendMail", {
       to: email,
@@ -108,13 +91,15 @@ export const signUp = async (req, res) => {
     if (!user)
       return res.status(500).json({ message: "create user failed, try again" });
 
-    return res.status(201).json({ message: "user created successfully", user });
+    return res
+      .status(201)
+      .json({ message: "user created successfully", user: sanitizeUser(user) });
   } catch (err) {
     console.error(err.message);
-    res.status(500).json({ message: err.message });
+    const { status, message } = getErrorResponse(err);
+    return res.status(status).json({ message });
   }
 };
-
 /*
 {
   "username" : "hossam_ghallab",
@@ -134,7 +119,7 @@ export const signUp = async (req, res) => {
  *** ASymmetrice   >> two keys
  * one way encryption (encryption ✔ | decryption ✖) >> don't create decryption after encrypted it >>>> bcrypt
  *** Hash
-*/
+ */
 
 /**
  * plain text               =>> Hossma
@@ -161,10 +146,13 @@ export const verifyEmail = async (req, res) => {
     );
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    res.status(200).json({ message: "Email verfied successfully", user });
+    res
+      .status(200)
+      .json({ message: "Email verfied successfully", user: sanitizeUser(user) });
   } catch (err) {
     console.error(err.message);
-    res.status(500).json({ message: err.message });
+    const { status, message } = getErrorResponse(err);
+    return res.status(status).json({ message });
   }
 };
 
@@ -189,19 +177,19 @@ export const signIn = async (req, res) => {
       { expiresIn: "5d", jwtid: uuidv4() }
     );
     return res
-      .status(201)
+      .status(200)
       .json({
         message: "user logged in successfully",
         token: accessToken,
         refresh_token: refreshToken,
-        user,
+        user: sanitizeUser(user),
       });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err, message: err.message });
+    const { status, message } = getErrorResponse(err);
+    return res.status(status).json({ message });
   }
 };
-
 /*
 {
   "email": "7ossam.ghallab@gmail.com",
@@ -209,13 +197,23 @@ export const signIn = async (req, res) => {
 }
 */
 
-export const refreshToken = (req, res) => {
+export const refreshToken = async (req, res) => {
   try {
     const { refresh_token } = req.headers;
+    if (!refresh_token)
+      return res.status(401).json({ message: "No refresh token provided" });
+
     const decodedData = jwt.verify(
       refresh_token,
       process.env.JWT_SECRET_REFRESH
     );
+
+    const blackListedToken = await BlackListTokens.findOne({
+      tokenId: decodedData.jti,
+    });
+    if (blackListedToken)
+      return res.status(401).json({ message: "Token is blacklisted" });
+
     const accessToken = jwt.sign(
       { _id: decodedData._id, email: decodedData.email },
       process.env.JWT_SECRET_ACCESS,
@@ -226,14 +224,20 @@ export const refreshToken = (req, res) => {
       token: accessToken,
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err, message: err.message });
+    console.error(err.message);
+    const { status, message } = getErrorResponse(err);
+    return res.status(status).json({ message });
   }
 };
 
 export const logOut = async (req, res) => {
   try {
     const { access_token, refresh_token } = req.headers;
+    if (!access_token || !refresh_token)
+      return res
+        .status(401)
+        .json({ message: "Logout requires access_token and refresh_token" });
+
     const decodedAccessToken = jwt.verify(
       access_token,
       process.env.JWT_SECRET_ACCESS
@@ -242,23 +246,42 @@ export const logOut = async (req, res) => {
       refresh_token,
       process.env.JWT_SECRET_REFRESH
     );
-    await BlackListTokens.insertMany([
+
+    // Idempotent blacklist using upserts (tolerates already-blacklisted tokens).
+    await BlackListTokens.bulkWrite([
       {
-        tokenId: decodedAccessToken.jti,
-        expiryDate: decodedAccessToken.exp,
+        updateOne: {
+          filter: { tokenId: decodedAccessToken.jti },
+          update: {
+            $setOnInsert: {
+              tokenId: decodedAccessToken.jti,
+              expiryDate: decodedAccessToken.exp,
+            },
+          },
+          upsert: true,
+        },
       },
       {
-        tokenId: decodedRefreshToken.jti,
-        expiryDate: decodedRefreshToken.exp,
+        updateOne: {
+          filter: { tokenId: decodedRefreshToken.jti },
+          update: {
+            $setOnInsert: {
+              tokenId: decodedRefreshToken.jti,
+              expiryDate: decodedRefreshToken.exp,
+            },
+          },
+          upsert: true,
+        },
       },
     ]);
+
     return res.json({ message: "Logged out successfully" });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err, message: err.message });
+    console.error(err.message);
+    const { status, message } = getErrorResponse(err);
+    return res.status(status).json({ message });
   }
 };
-
 
 export const forgotPassword = async (req, res) => {
   try {
@@ -266,7 +289,7 @@ export const forgotPassword = async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    const OTP = Math.floor(Math.random() * 100000)
+    const OTP = Math.floor(Math.random() * 100000);
 
     emitter.emit("sendMail", {
       to: user.email,
@@ -277,36 +300,41 @@ export const forgotPassword = async (req, res) => {
       `,
     });
 
-    const hashOTP = hashSync(OTP.toString(), +process.env.SALT)
-    
+    const hashOTP = hashSync(OTP.toString(), +process.env.SALT);
+
     await User.updateOne(
-      { email : user.email },
-      { $set: { otp : hashOTP } }
+      { email: user.email },
+      { $set: { otp: hashOTP } }
     );
-    return res.status(200).json({ message: "Reset password email sent successfully" });
+    return res
+      .status(200)
+      .json({ message: "Reset password email sent successfully" });
   } catch (err) {
     console.error(err.message);
-    res.status(500).json({ message: err.message });
+    const { status, message } = getErrorResponse(err);
+    return res.status(status).json({ message });
   }
-}
-
+};
 
 export const resetPassword = async (req, res) => {
   try {
     const { email, otp, password, confirmPassword } = req.body;
-    if (password !== confirmPassword) return res.status(400).json({ message: "Passwords do not match" });
+    if (password !== confirmPassword)
+      return res.status(400).json({ message: "Passwords do not match" });
     const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user.otp) return res.status(401).json({ message: "Invalid OTP" });
     const isOTPMatch = compareSync(otp.toString(), user.otp);
     if (!isOTPMatch) return res.status(401).json({ message: "Invalid OTP" });
-    const hashPassword = hashSync(password, +process.env.SALT)
+    const hashPassword = hashSync(password, +process.env.SALT);
     await User.updateOne(
-      { email : user.email },
-      { $set: { password : hashPassword }, $unset : {otp} }
+      { email: user.email },
+      { $set: { password: hashPassword }, $unset: { otp } }
     );
     res.status(200).json({ message: "password updated  successfully" });
   } catch (err) {
     console.error(err.message);
-    res.status(500).json({ message: err.message });
+    const { status, message } = getErrorResponse(err);
+    return res.status(status).json({ message });
   }
-}
+};

@@ -8,10 +8,8 @@ export const sendEmailService = async ({
   attachments = [],
 }) => {
   try {
-    // console.log(process.env.EMAIL_USER)
-    // console.log(process.env.EMAIL_PASS)
     const transporter = nodemailer.createTransport({
-      host: "smtp.gmail.com", // localhost
+      host: "smtp.gmail.com",
       port: 465,
       secure: true,
       auth: {
@@ -41,7 +39,6 @@ export const sendEmailService = async ({
 export const emitter = new EventEmitter();
 
 emitter.on("sendMail", (...args) => {
-  // console.log(args)
   const { to, subject, html, attachments } = args[0];
   sendEmailService({ to, subject, html, attachments });
   console.log("Email sent successfully!");

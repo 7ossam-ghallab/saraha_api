@@ -4,7 +4,7 @@ import { authenticationMiddleware } from "../../Middlewares/authentication.middl
 import { autherization } from "../../Middlewares/autherization.middlewares.js";
 import { systemRoles } from "../../Constants/systemRoles.constants.js";
 import { errorHandler } from "../../Middlewares/errorHandler.middlewares.js";
-const { USER , ADMIN, SUPER_ADMIN} = systemRoles
+const { ADMIN, SUPER_ADMIN } = systemRoles
 
 
 const userRouter = Router();
@@ -13,6 +13,6 @@ userRouter.use(authenticationMiddleware())
 userRouter.get("/getProfileData", errorHandler(userServices.profileData));
 userRouter.patch("/update-password", errorHandler(userServices.updatePassword));
 userRouter.put("/update-profile", errorHandler(userServices.updateProfile));
-userRouter.get("/list-users", autherization([ USER, ADMIN]) ,errorHandler(userServices.listUsers));
+userRouter.get("/list-users", autherization([ADMIN, SUPER_ADMIN]) ,errorHandler(userServices.listUsers));
 
 export default userRouter;

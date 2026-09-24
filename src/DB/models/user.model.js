@@ -16,7 +16,6 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      // match : [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, "Please enter a valid email address"],
       trim: true,
     },
     password: {
@@ -25,13 +24,11 @@ const userSchema = new mongoose.Schema(
       minlength: [8, "password must be at least 8 characters long"],
       maxlength: 100,
       trim: true,
-      // select : false,
     },
     phone: {
       type: String,
       required: true,
       unique: true,
-      // match : [/^\+?([0-9]{1,3})\s?[-. (]*([0-9]{1,3})[-. )]*([0-9]{1,4})[-. ]*([0-9]{1,4})$/, "Please enter a valid phone number"],
       trim: true,
     },
     profileImage: String,

@@ -5,7 +5,6 @@ const validationMiddleware = (schema) => {
     let validationErrors = []
     for (const key of schemaKeys) {
       const {error} = schema[key].validate(req[key], {abortEarly : false}); // {abortEarly : false} to show all errors not the first
-      // console.log(error)
       if (error) {
         validationErrors.push(...error.details);
       }

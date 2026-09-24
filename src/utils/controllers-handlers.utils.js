@@ -15,10 +15,5 @@ export const controllerHandler = (app) => {
     res.status(404).json({ message: "Page not found" });
   });
 
-  // app.use(
-  //   (err, req, res, next) => {
-  //     if (err) return res.status(500).json({ Error_message: err.message})
-  //   }
-  // )
   app.use(globalErrorHandler);
 };

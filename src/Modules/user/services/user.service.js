@@ -7,12 +7,15 @@ import { emitter } from "../../../Services/send-email.services.js";
 import { sanitizeUser } from "../../../utils/sanitizers.utils.js";
 import { getErrorResponse } from "../../../utils/error-handling.utils.js";
 
+const EMAIL_VERIFY_EXPIRY = "30m";
+
 /**
  * Builds the base URL used in e-mail links.
  * Uses APP_URL env when available (prevents Host-header injection),
  * falls back to the request's protocol + host for local development.
  */
-const getAppURL = (req) => process.env.APP_URL || `${req.protocol}://${req.headers.host}`;
+const getAppURL = (req) =>
+  process.env.APP_URL || `${req.protocol}://${req.headers.host}`;
 
 export const profileData = async (req, res) => {
   try {
@@ -21,12 +24,10 @@ export const profileData = async (req, res) => {
       cipher: user.phone,
       key: process.env.ENCRYPTED_KEY,
     });
-    try {
-      user.phone = JSON.parse(decryptedPhone);
-    } catch {
-      user.phone = decryptedPhone;
-    }
-    return res.status(200).json({ message: "user founded successfully", user: sanitizeUser(user) });
+    user.phone = decryptedPhone;
+    return res
+      .status(200)
+      .json({ message: "user founded successfully", user: sanitizeUser(user) });
   } catch (err) {
     console.error(err);
     const { status, message } = getErrorResponse(err);
@@ -69,23 +70,36 @@ export const updateProfile = async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
+
+    let emailWasChanged = false;
     if (userName) user.userName = userName;
     if (phone) {
-      user.phone = await Encryption({ value: phone, key: process.env.ENCRYPTED_KEY });
+      user.phone = await Encryption({
+        value: phone,
+        key: process.env.ENCRYPTED_KEY,
+      });
     }
-    if (email) {
+    if (email && email !== user.email) {
       const isEmailExist = await User.findOne({ email });
       if (isEmailExist)
         return res.status(409).json({ message: "Email already exists" });
-      const token = jwt.sign({ email }, process.env.JWT_SECRET_KEY, {
-        expiresIn: "15m",
+      user.email = email;
+      user.isEmailVerified = false;
+      emailWasChanged = true;
+    }
+
+    await user.save();
+
+    if (emailWasChanged) {
+      const token = jwt.sign({ email: user.email }, process.env.JWT_SECRET_KEY, {
+        expiresIn: EMAIL_VERIFY_EXPIRY,
         jwtid: uuidv4(),
       });
 
       const confirmEmailLink = `${getAppURL(req)}/auth/verify-email/${token}`;
 
       emitter.emit("sendMail", {
-        to: email,
+        to: user.email,
         subject: "Email Verification",
         html: `
           <h1> verify your email </h1>
@@ -93,10 +107,8 @@ export const updateProfile = async (req, res) => {
           <a href="${confirmEmailLink}">confirm Email</a>
         `,
       });
-      user.email = email;
-      user.isEmailVerified = false;
     }
-    await user.save();
+
     return res
       .status(200)
       .json({ message: "User updated successfully", user: sanitizeUser(user) });
@@ -109,10 +121,23 @@ export const updateProfile = async (req, res) => {
 
 export const listUsers = async (req, res) => {
   try {
-    const users = await User.find()
-      .select("-password -otp -__v")
-      .lean();
-    return res.status(200).json({ message: "Users listed successfully", users: users.map(sanitizeUser) });
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit, 10) || 10, 1),
+      50
+    );
+    const skip = (page - 1) * limit;
+
+    const [users, total] = await Promise.all([
+      User.find().select("-password -otp -__v").skip(skip).limit(limit).lean(),
+      User.countDocuments(),
+    ]);
+
+    return res.status(200).json({
+      message: "Users listed successfully",
+      users: users.map(sanitizeUser),
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    });
   } catch (err) {
     console.error(err);
     const { status, message } = getErrorResponse(err);

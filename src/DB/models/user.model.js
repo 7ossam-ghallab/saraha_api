@@ -6,7 +6,7 @@ const userSchema = new mongoose.Schema(
     userName: {
       type: String,
       required: true,
-      unique: [true, "username is already taken"],
+      unique: true,
       lowercase: true,
       minlength: [3, "username must be at least 3 characters long"],
       maxlength: 20,
@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema(
     email: {
       type: String,
       required: true,
-      unique: [true, "email is already taken"],
+      unique: true,
       // match : [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, "Please enter a valid email address"],
       trim: true,
     },
@@ -30,12 +30,17 @@ const userSchema = new mongoose.Schema(
     phone: {
       type: String,
       required: true,
-      unique: [true, "phone number is already registered"],
+      unique: true,
       // match : [/^\+?([0-9]{1,3})\s?[-. (]*([0-9]{1,3})[-. )]*([0-9]{1,4})[-. ]*([0-9]{1,4})$/, "Please enter a valid phone number"],
       trim: true,
     },
     profileImage: String,
     otp: String,
+    otpExpiresAt: Date,
+    otpAttempts: {
+      type: Number,
+      default: 0,
+    },
     isDeleted: {
       type: Boolean,
       default: false,

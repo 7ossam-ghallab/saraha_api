@@ -7,6 +7,6 @@ export const sanitizeUser = (user) => {
   if (!user) return user;
 
   const doc = typeof user.toObject === "function" ? user.toObject() : user;
-  const { password, otp, __v, ...safeUser } = doc;
+  const { password, otp, otpExpiresAt, otpAttempts, __v, ...safeUser } = doc;
   return safeUser;
 };

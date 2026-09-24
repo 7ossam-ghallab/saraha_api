@@ -1,41 +1,35 @@
-/**
- * destructuring data from request body
- * check if email is already exists in db or not
- * Hash password
- * Encrypt phone number
- * if not exists then create new user
- * send email for verfication
- */
-
+import crypto from "crypto";
 import { User } from "../../../DB/models/user.model.js";
 import { compareSync, hashSync } from "bcrypt";
 import { Encryption } from "../../../utils/encryption.utils.js";
 import { emitter } from "../../../Services/send-email.services.js";
-import path from "path";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import BlackListTokens from "../../../DB/models/black-list-tokens.model.js";
 import { sanitizeUser } from "../../../utils/sanitizers.utils.js";
 import { getErrorResponse } from "../../../utils/error-handling.utils.js";
 
+const EMAIL_VERIFY_EXPIRY = "30m";
+const OTP_EXPIRY_MINUTES = 10;
+const OTP_EXPIRY_MS = OTP_EXPIRY_MINUTES * 60 * 1000;
+const MAX_OTP_ATTEMPTS = 5;
+
 /**
  * Builds the base URL used in e-mail links.
  * Uses APP_URL env when available (prevents Host-header injection),
  * falls back to the request's protocol + host for local development.
  */
-const getAppURL = (req) => process.env.APP_URL || `${req.protocol}://${req.headers.host}`;
+const getAppURL = (req) =>
+  process.env.APP_URL || `${req.protocol}://${req.headers.host}`;
 
-/**
- * find
- * findOne
- * findById == findByPK
- */
-
-/**
- * create
- * save
- * insertMany
- */
+const buildVerificationEmail = (link) => ({
+  subject: "Email Verification",
+  html: `
+    <h1> Verify your email </h1>
+    <p>Click on the following link to verify your email:</p>
+    <a href="${link}">Confirm Email</a>
+  `,
+});
 
 export const signUp = async (req, res) => {
   try {
@@ -54,32 +48,6 @@ export const signUp = async (req, res) => {
       key: process.env.ENCRYPTED_KEY,
     });
 
-    const token = jwt.sign({ email }, process.env.JWT_SECRET_KEY, {
-      expiresIn: "15m",
-    });
-
-    const confirmEmailLink = `${getAppURL(req)}/auth/verify-email/${token}`;
-
-    emitter.emit("sendMail", {
-      to: email,
-      subject: "Email Verification",
-      html: `
-        <h1> verify your email </h1>
-        <p>Click on the following link to verify your email:</p>
-        <a href="${confirmEmailLink}">confirm Email</a>
-      `,
-      attachments: [
-        {
-          filename: "mysql-tutorial-excerpt-5.7-en.pdf",
-          path: path.resolve("Assets/mysql-tutorial-excerpt-5.7-en.pdf"),
-        },
-        {
-          filename: "image.png",
-          path: path.resolve("Assets/image.png"),
-        },
-      ],
-    });
-
     const newUser = new User({
       userName: username,
       password: hashPassword,
@@ -91,6 +59,18 @@ export const signUp = async (req, res) => {
     if (!user)
       return res.status(500).json({ message: "create user failed, try again" });
 
+    const token = jwt.sign({ email }, process.env.JWT_SECRET_KEY, {
+      expiresIn: EMAIL_VERIFY_EXPIRY,
+      jwtid: uuidv4(),
+    });
+
+    const confirmEmailLink = `${getAppURL(req)}/auth/verify-email/${token}`;
+
+    emitter.emit("sendMail", {
+      to: email,
+      ...buildVerificationEmail(confirmEmailLink),
+    });
+
     return res
       .status(201)
       .json({ message: "user created successfully", user: sanitizeUser(user) });
@@ -100,41 +80,7 @@ export const signUp = async (req, res) => {
     return res.status(status).json({ message });
   }
 };
-/*
-{
-  "username" : "hossam_ghallab",
-  "password" : "123456789",
-  "confirmPassword" : "123456789",
-  "email" : "7ossam.ghallab@gmail.com",
-  "phone" : "+201111111111"
-}
-*/
 
-/**
- * two way encryption (encryption ✔ | decryption ✔) >>>> crypto-js
- *** Symmetrice    >> one key
- ****** hossam => encryption => 'secret_1' => cipher
- ****** cipher => decryption => 'secret_1' => hossam
-
- *** ASymmetrice   >> two keys
- * one way encryption (encryption ✔ | decryption ✖) >> don't create decryption after encrypted it >>>> bcrypt
- *** Hash
- */
-
-/**
- * plain text               =>> Hossma
- * cipher                   =>> dlakfjownvdsakfl423
- * signature (secret key)   =>> wayToCreateEncryption
- */
-
-/**
- * updateOne
- * updateMany
- *
- * findOneAndUpdate
- * findByIdAndUpdate
- * save
- */
 export const verifyEmail = async (req, res) => {
   try {
     const { token } = req.params;
@@ -161,8 +107,13 @@ export const signIn = async (req, res) => {
     const { email, password } = req.body;
 
     const user = await User.findOne({ email });
-    if (!user)
-      return res.status(404).json({ message: "invalid email or password" });
+    if (!user || user.isDeleted)
+      return res.status(401).json({ message: "invalid email or password" });
+    if (!user.isEmailVerified)
+      return res
+        .status(403)
+        .json({ message: "Please verify your email before signing in" });
+
     const isPasswordMatch = compareSync(password, user.password);
     if (!isPasswordMatch)
       return res.status(401).json({ message: "invalid email or password" });
@@ -176,26 +127,18 @@ export const signIn = async (req, res) => {
       process.env.JWT_SECRET_REFRESH,
       { expiresIn: "5d", jwtid: uuidv4() }
     );
-    return res
-      .status(200)
-      .json({
-        message: "user logged in successfully",
-        token: accessToken,
-        refresh_token: refreshToken,
-        user: sanitizeUser(user),
-      });
+    return res.status(200).json({
+      message: "user logged in successfully",
+      token: accessToken,
+      refresh_token: refreshToken,
+      user: sanitizeUser(user),
+    });
   } catch (err) {
     console.error(err);
     const { status, message } = getErrorResponse(err);
     return res.status(status).json({ message });
   }
 };
-/*
-{
-  "email": "7ossam.ghallab@gmail.com",
-  "password" : "123456789"
-}
-*/
 
 export const refreshToken = async (req, res) => {
   try {
@@ -207,6 +150,9 @@ export const refreshToken = async (req, res) => {
       refresh_token,
       process.env.JWT_SECRET_REFRESH
     );
+
+    if (decodedData.exp * 1000 < Date.now())
+      return res.status(401).json({ message: "Token expired" });
 
     const blackListedToken = await BlackListTokens.findOne({
       tokenId: decodedData.jti,
@@ -255,7 +201,7 @@ export const logOut = async (req, res) => {
           update: {
             $setOnInsert: {
               tokenId: decodedAccessToken.jti,
-              expiryDate: decodedAccessToken.exp,
+              expiryDate: new Date(decodedAccessToken.exp * 1000),
             },
           },
           upsert: true,
@@ -267,7 +213,7 @@ export const logOut = async (req, res) => {
           update: {
             $setOnInsert: {
               tokenId: decodedRefreshToken.jti,
-              expiryDate: decodedRefreshToken.exp,
+              expiryDate: new Date(decodedRefreshToken.exp * 1000),
             },
           },
           upsert: true,
@@ -289,7 +235,7 @@ export const forgotPassword = async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    const OTP = Math.floor(Math.random() * 100000);
+    const OTP = crypto.randomInt(100000, 999999);
 
     emitter.emit("sendMail", {
       to: user.email,
@@ -304,7 +250,13 @@ export const forgotPassword = async (req, res) => {
 
     await User.updateOne(
       { email: user.email },
-      { $set: { otp: hashOTP } }
+      {
+        $set: {
+          otp: hashOTP,
+          otpExpiresAt: new Date(Date.now() + OTP_EXPIRY_MS),
+          otpAttempts: 0,
+        },
+      }
     );
     return res
       .status(200)
@@ -322,16 +274,37 @@ export const resetPassword = async (req, res) => {
     if (password !== confirmPassword)
       return res.status(400).json({ message: "Passwords do not match" });
     const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ message: "User not found" });
-    if (!user.otp) return res.status(401).json({ message: "Invalid OTP" });
+    if (!user) return res.status(401).json({ message: "Invalid OTP" });
+
+    if (!user.otp || !user.otpExpiresAt)
+      return res.status(401).json({ message: "Invalid OTP" });
+    if (user.otpExpiresAt < new Date())
+      return res
+        .status(401)
+        .json({ message: "OTP has expired, please request a new one" });
+    if (user.otpAttempts >= MAX_OTP_ATTEMPTS)
+      return res
+        .status(429)
+        .json({ message: "Too many incorrect attempts, request a new OTP" });
+
     const isOTPMatch = compareSync(otp.toString(), user.otp);
-    if (!isOTPMatch) return res.status(401).json({ message: "Invalid OTP" });
+    if (!isOTPMatch) {
+      await User.updateOne(
+        { email: user.email },
+        { $inc: { otpAttempts: 1 } }
+      );
+      return res.status(401).json({ message: "Invalid OTP" });
+    }
+
     const hashPassword = hashSync(password, +process.env.SALT);
     await User.updateOne(
       { email: user.email },
-      { $set: { password: hashPassword }, $unset: { otp } }
+      {
+        $set: { password: hashPassword, otpAttempts: 0 },
+        $unset: { otp: "", otpExpiresAt: "" },
+      }
     );
-    res.status(200).json({ message: "password updated  successfully" });
+    res.status(200).json({ message: "password updated successfully" });
   } catch (err) {
     console.error(err.message);
     const { status, message } = getErrorResponse(err);

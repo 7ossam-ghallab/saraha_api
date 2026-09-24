@@ -21,7 +21,8 @@ Chronological list of all commits in this repository, from the initial scaffold 
 | 7 | `548ed9f` | `feat: add root health-check endpoint` |
 | 8 | `ad1afca` | `fix(scripts): correct npm start command syntax` |
 | 9 | `4b90462` | `fix(validation): enforce Joi validation on signup route` |
-| 10 | `HEAD` | `fix(security): resolve critical P0 security vulnerabilities` |
+| 10 | `aaeefb4` | `fix(security): resolve critical P0 security vulnerabilities` |
+| 11 | `HEAD` | `fix(security): harden password reset, email verification, and token lifecycle` |
 
 ---
 
@@ -113,7 +114,7 @@ Chronological list of all commits in this repository, from the initial scaffold 
 
 ---
 
-## 10. `HEAD` — fix(security): resolve critical P0 security vulnerabilities
+## 10. `aaeefb4` — fix(security): resolve critical P0 security vulnerabilities
 
 **Original message:** `fix(security): resolve critical P0 security vulnerabilities` (unchanged)
 
@@ -124,3 +125,20 @@ Chronological list of all commits in this repository, from the initial scaffold 
 - **Error handling:** centralized `getErrorResponse` maps `CastError`/`ValidationError`/JWT errors/duplicate key to proper 4xx responses and generic `500`, stopping internal-error leaks.
 - **Emails:** verification links built from `APP_URL` to prevent host-header injection.
 - **Misc:** signin returns `200`; phone decryption uses `JSON.parse`; expired/invalid tokens return `401`; reset-password guards a missing OTP; verify-email token lifetime extended to `15m`.
+
+---
+
+## 11. `HEAD` — fix(security): harden password reset, email verification, and token lifecycle
+
+**Original message:** n/a (new commit)
+
+- **Password reset hardening:** OTP generated with `crypto.randomInt(100000, 999999)`, stored hashed (bcrypt) alongside a ~10-minute `otpExpiresAt`; single-use on success (`$unset` otp/otpExpiresAt); guarded reset-password when no OTP exists; an `otpAttempts` counter (max 5) returns `429` on repeated failures.
+- **Email verification:** token lifetime extended to `30m` with a `jwtid`; the user is saved *before* queuing the e-mail; links built from the `APP_URL` env var; no `Assets/` attachments; the mail service logs real send results (message id / failure) via Nodemailer's promise.
+- **Sign-in:** returns `200`; enforces `isEmailVerified` (`403`) and rejects soft-deleted users.
+- **Auth middleware:** rejects soft-deleted users and compares `exp` at request time.
+- **Phone decryption:** `Decryption` now `JSON.parse`s the decrypted value; profile services consume it directly.
+- **Joi pre-validation:** added schemas + wiring for sign-in, forgot/reset-password, update-password, update-profile, and message send/delete.
+- **Messages:** added `DELETE /message/:id` with ownership (and admin) checks and pagination (`page`/`limit`, capped at 50) on `getMessages`, `getUserMessages`, and `list-users`.
+- **Blacklist TTL:** `expiryDate` stored as a real `Date` with a TTL index (`expireAfterSeconds: 0`) so expired tokens auto-purge; middleware compares expiry at request time.
+- **Sanitizer:** also strips `otpExpiresAt` and `otpAttempts` from user responses.
+- **Duplicate-key fix:** the `User` model's `unique` indexes now use proper `true` syntax (were invalid arrays), so duplicates correctly map to `409` instead of `500`.
